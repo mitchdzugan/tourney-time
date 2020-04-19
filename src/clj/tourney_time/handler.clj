@@ -18,9 +18,7 @@
 (defn loading-page []
   (html5
    (head)
-   [:body {:class "body-container"}
-    mount-target
-    (include-js "/js/app.js")]))
+   [:body mount-target (include-js "/js/app.js")]))
 
 
 (defn index-handler

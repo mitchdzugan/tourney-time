@@ -9,29 +9,32 @@
 (defrecord GrandsReset [])
 (defrecord Grands [])
 
-(defprotomethod label [{:keys [depth drop-round?]}]
+(defprotomethod label [{:keys [depth drop-round?]} entrants]
   [Grands GrandsReset] "Grands"
   Winners
   (case depth
     0 "Winners Finals"
     1 "Winners Semis"
-    (str "Winners Top " (quot (* 3 (p2 (inc depth))) 2)))
+    (let [calc (quot (* 3 (p2 (inc depth))) 2)]
+      (if (= calc (* 2 entrants))
+        "Play In Round"
+        (str "Winners Top " (min entrants calc)))))
   Losers
   (cond
     (and (= 0 depth) drop-round?)
     "Losers Finals"
 
     (and (= 0 depth))
-    "Losers Semi Finals"
+    "Losers Semis"
 
     (and (= 1 depth) drop-round?)
-    "Losers Quarter Finals"
+    "Losers Quarters"
 
     drop-round?
-    (str "Losers Top " (* 3 (p2 depth)))
+    (str "Losers Top " (min entrants (* 3 (p2 depth))))
 
     :else
-    (str "Losers Top " (p2 (+ 2 depth)))))
+    (str "Losers Top " (min entrants (p2 (+ 2 depth))))))
 
 (defprotomethod upper-bracket? [this]
   Losers false
