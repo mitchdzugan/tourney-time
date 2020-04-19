@@ -15,6 +15,8 @@
    [tourney-time.tournament.match :as m]
    [tourney-time.tournament.match-path :as mp]
    [tourney-time.tournament.match-player :as mpl]
+   [tourney-time.tournament.pool-path
+    :refer [->PoolPath]]
    [tourney-time.tournament.rep :as r]
    [tourney-time.tournament.standing
     :refer [->Standing]]
@@ -54,16 +56,17 @@
                                                           (bs/-de-settings
                                                            []
                                                            {}))))
-        run-with (fn [n]
+        run-with (fn [n results]
                    (let [gamers (vec (map ->Gamer (range n)))
                          spec (-> simple-spec
                                   (update :entrant-groups
                                           #(lhm/set %1
                                                     1
-                                                    (->EntrantGroup gamers))))]
+                                                    (->EntrantGroup gamers)))
+                                  (assoc :results results))]
                      (g/to-tournament-gen spec)))]
     (fn []
-      (let [matches-by-round (->> (run-with @entrants)
+      (let [matches-by-round (->> (run-with @entrants {})
                                   :result
                                   :segments
                                   first
@@ -77,30 +80,49 @@
                                (sort-by er/to-int))
             round-ints (->> sorted-rounds
                             (map er/to-int))
-            matches (->> sorted-rounds
-                         reverse
-                         (reduce #(conj %1 (get matches-by-round %2)) [])
-                         flatten)
             setup-data (->> (range @setups)
                             (reduce #(assoc %1 %2 {:id %2 :time 0}) {}))
             match-time (fn [{:keys [path]}]
                          (if (> (er/to-int (mp/get-round path)) @bo5-round)
                            @bo3-length
                            @bo5-length))
-            final-data (->> matches
-                            (reduce #(let [{:keys [id time]} (apply min-key :time (vals %1))]
-                                       (update-in %1 [id :time] (curry + (match-time %2))))
-                                    setup-data))
+
+            pool-path (->PoolPath 1 0)
+            final-data
+            (loop [results {}
+                   data setup-data]
+              (let [matches (->> (run-with @entrants results)
+                                 :result
+                                 :segments
+                                 first
+                                 :pools
+                                 first
+                                 :matches
+                                 vals
+                                 (remove m/complete?)
+                                 (filter m/reportable?))
+
+                    played
+                    (reduce #(let [{:keys [id time]} (apply min-key :time (vals %1))]
+                               (update-in %1 [id :time] (curry + (match-time %2))))
+                            data
+                            matches)
+
+                    max-time (->> played vals (apply max-key :time) :time)]
+                (if (empty? matches)
+                  data
+                  (recur (reduce #(assoc-in %1 [pool-path (:path %2)] :up) results matches)
+                         (a/map-values #(assoc %1 :time max-time) played)))))
             total-time (->> final-data
                             vals
                             (apply max-key :time)
                             :time)]
-        (pprint {:bo3-length @bo3-length
-                 :bo5-length @bo5-length
-                 :entrants @entrants
-                 :bo5-round @bo5-round
-                 :setups @setups
-                 :total-time total-time})
+        (println {:bo3-length @bo3-length
+                  :bo5-length @bo5-length
+                  :entrants @entrants
+                  :bo5-round @bo5-round
+                  :setups @setups
+                  :total-time total-time})
         [:div
          [:p "Total Tournament Time: " [:strong (str total-time)] " minutes."]
          [:p "Number of entrants: "
