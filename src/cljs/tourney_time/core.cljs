@@ -121,7 +121,7 @@
           [:input {:type "number"
                    :value @bo3-length
                    :on-change #(reset! bo3-length (int (-> % .-target .-value)))}]]
-         [:p "Best of 5 time (mintues): "
+         [:p "Best of 5 time (minutes): "
           [:input {:type "number"
                    :value @bo5-length
                    :on-change #(reset! bo5-length (int (-> % .-target .-value)))}]]]))))
