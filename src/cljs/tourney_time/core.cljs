@@ -46,12 +46,17 @@
 ;; Page components
 
 (defn home-page []
-  (let [entrants (atom 16)
+  (let [pick (atom 0)
+        stream? (atom false)
+        entrants (atom 16)
+        stream-round (atom -3)
         bo5-round (atom 4)
         setups (atom 5)
         reset? (atom 1)
         bo3-length (atom 10)
         bo5-length (atom 20)
+        bo3-stream-length (atom 15)
+        bo5-stream-length (atom 30)
         simple-spec (bs/build-spec (mdo (bs/-entrant-groups 1 [])
                                         (bs/-segment-spec (bs/-group-source 1)
                                                           (bs/-de-settings
@@ -67,7 +72,8 @@
                                   (assoc :results results))]
                      (g/to-tournament-gen spec)))]
     (fn []
-      (let [label #(er/label (er/from-int %) @entrants)
+      (let [bo5? (= @pick 0)
+            label #(er/label (er/from-int %) @entrants)
             matches-by-round (->> (run-with @entrants {})
                                   :result
                                   :segments
@@ -85,9 +91,19 @@
             setup-data (->> (range @setups)
                             (reduce #(assoc %1 %2 {:id %2 :time 0}) {}))
             match-time (fn [{:keys [path]}]
-                         (if (> (er/to-int (mp/get-round path)) @bo5-round)
-                           @bo3-length
-                           @bo5-length))
+                         (cond
+                           (and
+                            (<= (er/to-int (mp/get-round path)) @stream-round)
+                            (<= (er/to-int (mp/get-round path)) @bo5-round))
+                           @bo5-stream-length
+
+                           (<= (er/to-int (mp/get-round path)) @stream-round)
+                           @bo3-stream-length
+
+                           (<= (er/to-int (mp/get-round path)) @bo5-round)
+                           @bo5-length
+
+                           :else @bo3-length))
 
             pool-path (->PoolPath 1 0)
             matches (->> sorted-rounds
@@ -105,9 +121,11 @@
                                         (slot-time (:down slots)))
                           setups (vals data)
                           readies (remove #(> (:time %1) earliest) setups)
-                          setup (if (empty? readies)
-                                  (apply min-key :time setups)
-                                  (apply max-key :time readies))
+                          setup (cond
+                                  (<= (er/to-int (mp/get-round (:path match)))
+                                      @stream-round) (apply max-key :time setups)
+                                  (empty? readies) (apply min-key :time setups)
+                                  :else (apply max-key :time readies))
                           time (+ (:time setup) (match-time match))]
                       {:data (assoc-in data [(:id setup) :time] time)
                        :times (assoc times path time)}))
@@ -117,10 +135,17 @@
                             vals
                             (apply max-key :time)
                             :time
-                            (+ (quot (* @bo5-length @reset?) 2)))
-            color #(if (> %1 @bo5-round)
-                     "#c3e6e1"
-                     "#3fe8d0")
+                            (+ (quot (* (if (> @stream-round -3)
+                                          @bo5-stream-length
+                                          @bo5-length)
+                                        @reset?)
+                                     2)))
+            color #(cond
+                     (and (<= %1 @stream-round)
+                          (<= %1 @bo5-round)) "#cf3fe8"
+                     (<= %1 @bo5-round) "#3fe8d0"
+                     (<= %1 @stream-round) "#e83f3f"
+                     :else "#c3e6e1")
 
             render-matches
             (fn [round-int]
@@ -152,7 +177,10 @@
                   :entrants @entrants
                   :bo5-round @bo5-round
                   :setups @setups
-                  :total-time total-time})
+                  :total-time total-time
+                  :stream-rond @stream-round
+                  :pick @pick
+                  })
         [:div
          [:div.container
           [:h2 {:style {:text-align "center"}} "Tourney Time Calc"]
@@ -172,6 +200,18 @@
            [:input {:type "number"
                     :value @bo5-length
                     :on-change #(reset! bo5-length (int (-> % .-target .-value)))}]]
+          (if (< @bo5-round @stream-round)
+            [:p "Best of 3 stream time (minutes): "
+             [:input {:type "number"
+                      :value @bo3-stream-length
+                      :on-change #(reset! bo3-stream-length (int (-> % .-target .-value)))}]]
+            [:div])
+          (if @stream?
+            [:p "Best of 5 stream time (minutes): "
+             [:input {:type "number"
+                      :value @bo5-stream-length
+                      :on-change #(reset! bo5-stream-length (int (-> % .-target .-value)))}]]
+            [:div])
           [:p "Reset? "
            [:select {:value @reset?
                      :on-change #(reset! reset? (int (-> % .-target .-value)))}
@@ -182,7 +222,24 @@
          [:div
           [:h4 {:style {:text-align "center"
                         :margin "20px 0 10px 0"}}
-           "Set First Best Of 5 Round"]
+           "Set First "
+           [:select {:value @pick
+                     :on-change #(do (reset! pick (int (-> % .-target .-value)))
+                                     (swap! stream? (fn [s?]
+                                                      (or (int (-> %
+                                                                   .-target
+                                                                   .-value))
+                                                          s?))))
+                     :style {:margin "0 8px 4px 4px"
+                             :font-size "16px"
+                             :font-weight "bold"
+                             :color (if bo5?
+                                      "#1f6e62"
+                                      "#6e1f2f")
+                             }}
+            [:option {:value 0 :color "#1f6e62"} "Best Of 5"]
+            [:option {:value 1 :color "#6e1f2f"} "Streamed"]]
+           "Round"]
           [:div {:style {:display "flex"
                          :flex-direction "column"
                          :margin "5px"
@@ -198,7 +255,9 @@
               ^{:key round-int}
               [:div {:style {:display "flex" :flex-direction "column" :margin "5px"
                              :position "relative" :align-items "center"}
-                     :on-click #(reset! bo5-round round-int)}
+                     :on-click (if bo5?
+                                 #(reset! bo5-round round-int)
+                                 #(reset! stream-round round-int))}
                [:div {:style {:white-space "nowrap"}} [:strong (label round-int)]]
                (render-matches round-int)])]
            [:div {:style {:display "flex" :flex-direction "row"}}
@@ -210,7 +269,9 @@
               ^{:key round-int}
               [:div {:style {:display "flex" :flex-direction "column" :margin "5px"
                              :position "relative" :align-items "center"}
-                     :on-click #(reset! bo5-round round-int)}
+                     :on-click (if bo5?
+                                 #(reset! bo5-round round-int)
+                                 #(reset! stream-round round-int))}
                [:div {:style {:white-space "nowrap"}} [:strong (label round-int)]]
                (render-matches round-int)])]]]]))))
 
