@@ -279,10 +279,7 @@
 ;; -------------------------
 ;; Translate routes -> page components
 
-(defn page-for [route]
-  (case route
-    :index #'home-page
-    #'home-page))
+(defn page-for [route] #'home-page)
 
 
 ;; -------------------------
