@@ -281,7 +281,8 @@
 
 (defn page-for [route]
   (case route
-    :index #'home-page))
+    :index #'home-page
+    #'home-page))
 
 
 ;; -------------------------
